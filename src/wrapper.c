@@ -103,18 +103,19 @@ SEXP R_co_vecvec(SEXP x, SEXP y, SEXP type_)
 //  Sparse
 // ---------------------------------------------
 
-#define INEDEX_FROM_1 1
+// #define INEDEX_FROM_1 1
 
-SEXP R_co_sparse(SEXP n_, SEXP a, SEXP i, SEXP j, SEXP type_)
+SEXP R_co_sparse(SEXP n_, SEXP a, SEXP i, SEXP j, SEXP index_, SEXP type_)
 {
-  const int type = INTEGER(type_)[0];
   int check;
   const int n = INTEGER(n_)[0];
+  const int index = INTEGER(index_)[0];
+  const int type = INTEGER(type_)[0];
   SEXP ret;
   PROTECT(ret = allocMatrix(REALSXP, n, n));
   
   if (type == CO_SIM)
-    check = coop_cosine_sparse_coo(INEDEX_FROM_1, n, LENGTH(a), REAL(a), INTEGER(i), INTEGER(j), REAL(ret));
+    check = coop_cosine_sparse_coo(index, n, LENGTH(a), REAL(a), INTEGER(i), INTEGER(j), REAL(ret));
   else
     BADTYPE();
   
@@ -158,4 +159,41 @@ SEXP R_sparsity_dbl(SEXP x, SEXP tol)
   UNPROTECT(1);
   
   return ret;
+}
+
+
+
+#define INT(x,i) INTEGER(x)[i]
+
+SEXP R_csc_to_coo(SEXP row_ind, SEXP col_ptr)
+{
+  int j = 0;
+  int c = 0, ind = 0;
+  int diff;
+  const int len = LENGTH(row_ind);
+  
+  SEXP col_ind;
+  PROTECT(col_ind = allocVector(INTSXP, len));
+  
+  
+  for (c=0; c<LENGTH(col_ptr)-1; c++) // hehehe
+  {
+    diff = INT(col_ptr, c+1) - INT(col_ptr, c);
+    
+    if (diff < 0)
+      error("malformed dgCMatrix; impossible col_ptr array");
+    
+    while (diff > 0)
+    {
+      INT(col_ind, ind) = j;
+      
+      ind++;
+      diff--;
+    }
+    
+    j++;
+  }
+  
+  UNPROTECT(1);
+  return col_ind;
 }

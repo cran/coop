@@ -359,12 +359,15 @@ int coop_covar_mat(const int m, const int n, const double *restrict x, double *r
 */
 int coop_covar_vecvec(const int n, const double *restrict x, const double *restrict y, double *restrict cov)
 {
+  int i;
   const double recip_n = (double) 1. / (n-1);
   double sum_xy = 0., sum_x = 0., sum_y = 0.;
   double tx, ty;
   
+  #ifdef OMP_VER_4
   #pragma omp simd reduction(+: sum_xy, sum_x, sum_y)
-  for (int i=0; i<n; i++)
+  #endif
+  for (i=0; i<n; i++)
   {
     tx = x[i];
     ty = y[i];
