@@ -7,14 +7,18 @@ test <- function(dense, sparse)
 {
   t1 <- coop::cosine(dense)
   t2 <- coop::cosine(sparse)
-  
   stopifnot(all.equal(t1, t2))
+  
+  ### these will fail because we use a cholesky to compute the inverse
+  # t1 <- coop::cosine(dense, inverse=TRUE)
+  # t2 <- coop::cosine(sparse, inverse=TRUE)
+  # stopifnot(all.equal(t1, t2))
 }
 
 
-if (require(slam))
+if (suppressPackageStartupMessages(require(slam)))
 {
-  library(slam)
+  suppressPackageStartupMessages(library(slam))
   set.seed(1234)
   
   ### Very sparse, has column of 0's
@@ -38,9 +42,9 @@ if (require(slam))
 
 
 
-if (require(Matrix))
+if (suppressPackageStartupMessages(require(Matrix)))
 {
-  library(Matrix)
+  suppressPackageStartupMessages(library(Matrix))
   set.seed(1234)
   
   ### Very sparse, has column of 0's

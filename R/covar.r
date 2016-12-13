@@ -14,6 +14,12 @@
 #' The NA handler, as in R's \code{cov()} and \code{cor()}
 #' functions.  Options are "everything", "all.obs", and 
 #' "complete.obs".
+#' @param inplace
+#' Logical; if \code{TRUE} then the method used is slower but
+#' uses less memory than if \code{FALSE}.  See \code{?coop-package}
+#' for details.
+#' @param inverse
+#' Logical; should the inverse covariance matrix be returned?
 #' 
 #' @return
 #' The covariance matrix.
@@ -26,21 +32,42 @@
 #' 
 #' @author Drew Schmidt
 #' @seealso \code{\link{cosine}}
+#' @name covar
+#' @rdname covar
+NULL
+
+#' @rdname covar
 #' @export
-covar <- function(x, y, use="everything") UseMethod("covar")
+covar <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE) UseMethod("covar")
 
 
 
 #' @export
-covar.matrix <- function(x, y, use="everything")
+covar.matrix <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE)
 {
-  co_matrix(x, y, CO_VAR, use)
+  co_matrix(x, y, CO_VAR, use, inplace, trans=FALSE, inverse=inverse)
 }
 
 
 
 #' @export
-covar.default <- function(x, y, use="everything")
+covar.default <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE)
 {
   co_vecvec(x, y, CO_VAR, use)
+}
+
+
+
+# tcovar
+
+#' @rdname covar
+#' @export
+tcovar <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE) UseMethod("tcovar")
+
+
+
+#' @export
+tcovar.matrix <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE)
+{
+  co_matrix(x, y, CO_VAR, use, inplace, trans=TRUE, inverse=inverse)
 }

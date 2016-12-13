@@ -1,16 +1,16 @@
 /*  Copyright (c) 2015-2016, Schmidt
     All rights reserved.
-    
+
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
-    
+
     1. Redistributions of source code must retain the above copyright notice,
     this list of conditions and the following disclaimer.
-    
+
     2. Redistributions in binary form must reproduce the above copyright
     notice, this list of conditions and the following disclaimer in the
     documentation and/or other materials provided with the distribution.
-    
+
     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
     "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
     TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
@@ -28,10 +28,12 @@
 // TODO: covariance and (pearson) correlation
 
 #include <stdlib.h>
-#include <string.h>
 #include <math.h>
+
 #include "coop.h"
-#include "omp.h"
+#include "utils/copy.h"
+#include "utils/inverse.h"
+#include "utils/fill.h"
 
 #define TMP_VEC_SIZE 1024
 
@@ -40,10 +42,6 @@
 //  Static utils
 // ---------------------------------------------
 
-static inline void set2zero(const unsigned int n, double *restrict x)
-{
-  memset(x, 0.0, n*sizeof(*x));
-}
 
 
 
@@ -54,21 +52,21 @@ static inline void set2nan(const int j, const int n, double *restrict cos)
   
   for (i=j; i<n; i++)
     cos[i + n*j] = NAN;
-  
+    
   for (i=0; i<j; i++)
     cos[j + n*i] = NAN;
 }
 
 
 
-static inline double sparsedot_self(const int vecstart, const int vecend, const int *rows, const double *a)
+static inline double sparsedot_self(const int vecstart, const int vecend, const int *rows, const double * const a)
 {
   int i;
   double dot = 0.0;
   
   for (i=vecstart; i<=vecend; i++)
     dot += a[i]*a[i];
-  
+    
   return dot;
 }
 
@@ -81,16 +79,16 @@ static inline void get_startend(const int len, const int ind, int *col, int *vec
   
   while (*col < len && cols[*col] == ind)
     (*col)++;
-  
+    
   *vecend = *col - 1;
 }
 
 
 
-static inline int get_array(int *tmplen, int *current_tmp_size, 
+static inline int get_array(int *tmplen, int *current_tmp_size,
   const int vecstart, const int vecend,
   double *restrict b, int *restrict brows,
-  const double *restrict a, const int *restrict rows)
+  const double * const restrict a, const int *restrict rows)
 {
   int k;
   void *realloc_ptr;
@@ -102,7 +100,7 @@ static inline int get_array(int *tmplen, int *current_tmp_size,
     *current_tmp_size = *tmplen;
     
     realloc_ptr = realloc(b, ((*current_tmp_size)+1) * sizeof(*b));
-    if (realloc_ptr == NULL) 
+    if (realloc_ptr == NULL)
     {
       free(b);
       free(brows);
@@ -110,9 +108,9 @@ static inline int get_array(int *tmplen, int *current_tmp_size,
     }
     else
       b = realloc_ptr;
-    
+      
     realloc_ptr = realloc(brows, ((*current_tmp_size)+1) * sizeof(*brows));
-    if (realloc_ptr == NULL) 
+    if (realloc_ptr == NULL)
     {
       free(b);
       free(brows);
@@ -140,22 +138,22 @@ static inline int get_array(int *tmplen, int *current_tmp_size,
 // ---------------------------------------------
 
 /**
- * @brief 
+ * @brief
  * Compute the cosine similarity matrix of a sparse, COO-stored
  * matrix.
- * 
+ *
  * @details
- * The implementation assumes the data is sorted by column index, 
+ * The implementation assumes the data is sorted by column index,
  * i.e. the COO is "column-major".
- * 
+ *
  * Note that if the number of rows times the number of columns of
  * the sparse matrix is equal to len, then your matrix is actually
  * dense, but stored in a stupid way.
- * 
+ *
  * @param index
  * 0 or 1 indexing from 0 or 1, respectively.
  * @param n
- * The total number of columns of sparsely-stored input matrix x, 
+ * The total number of columns of sparsely-stored input matrix x,
  * i.e., the number of columns of the matrix if it were densely
  * stored.
  * @param len
@@ -166,15 +164,16 @@ static inline int get_array(int *tmplen, int *current_tmp_size,
  * The row/column index vectors.
  * @param cos
  * The output nxn matrix.
- * 
+ *
  * @return
  * The function returns -1 if needed memory cannot be allocated, and
  * 0 otherwise.
 */
-int coop_cosine_sparse_coo(const int index, const int n, const int len, 
-  const double *restrict a, const int *restrict rows, const int *restrict cols, 
+int coop_cosine_sparse_coo(const bool inv, const int index, const int n, const int len,
+  const double * const restrict a, const int *restrict rows, const int *restrict cols,
   double *restrict cos)
 {
+  int ret;
   int i, j, k, l;
   int info;
   int col;
@@ -190,7 +189,11 @@ int coop_cosine_sparse_coo(const int index, const int n, const int len,
   double *a_colj = malloc(current_tmp_size * sizeof(*a_colj));
   CHECKMALLOC(a_colj);
   int *rows_colj = malloc(current_tmp_size * sizeof(*rows_colj));
-  CHECKMALLOC(rows_colj);
+  if (rows_colj == NULL)
+  {
+    free(a_colj);
+    return -1;
+  }
   
   
   set2zero(n*n, cos);
@@ -255,7 +258,7 @@ int coop_cosine_sparse_coo(const int index, const int n, const int len,
         }
       }
       
-      for (l=l; l<=vec2end; l++)
+      for (; l<=vec2end; l++)
       {
         tmp = a[l];
         yy += tmp*tmp;
@@ -273,8 +276,13 @@ int coop_cosine_sparse_coo(const int index, const int n, const int len,
   free(a_colj);
   free(rows_colj);
   
-  coop_diag2one(n, cos);
-  coop_symmetrize(n, cos);
+  diag2one(n, cos);
+  if (inv)
+  {
+    ret = inv_sym_chol(n, cos);
+    CHECKRET(ret);
+  }
+  symmetrize(n, cos);
   
   return 0;
 }

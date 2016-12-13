@@ -1,12 +1,11 @@
-is.vec <- function(x)
+co_matrix <- function(x, y, type, use, inplace, trans=FALSE, inverse=FALSE)
 {
-  is.vector(x) && !is.list(x)
-}
-
-
-
-co_matrix <- function(x, y, type, use)
-{
+  check.is.flag(inplace)
+  check.is.flag(inverse)
+  if (type != CO_SIM && (inplace && trans))
+    stop("Not yet implemented for inplace=TRUE, trans=TRUE, method != cosine()")
+  
+  
   if (!is.numeric(x))
     stop("argument 'x' must be numeric")
   if (!missing(y))
@@ -25,13 +24,15 @@ co_matrix <- function(x, y, type, use)
     if (anyNA(x))
       x <- naomit(x)
   }
-  else
-    stop("unsupported 'use' method")
   
   if (!is.double(x))
     storage.mode(x) <- "double"
   
-  ret <- .Call(R_co_mat, x, as.integer(type))
+  if (use == "pairwise.complete.obs")
+    ret <- .Call(R_co_mat_pairwise, x, as.integer(type), as.integer(inverse))
+  else
+    ret <- .Call(R_co_mat, x, as.integer(type), as.integer(inplace), as.integer(trans), as.integer(inverse))
+  
   if (!is.null(colnames(x)))
   {
     rownames(ret) <- colnames(x)

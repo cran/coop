@@ -24,31 +24,41 @@
     SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef COOP_LIB_H
-#define COOP_LIB_H
+#ifndef __COOP_LIB_H__
+#define __COOP_LIB_H__
 
+#include <stdbool.h>
 
-#define EPSILON 1e-10
-#define CHECKMALLOC(x) if(x==NULL) return -1
+#include "utils/cdefs.h"
+
 
 // dense
-int coop_cosine_mat(const int m, const int n, const double *restrict x, double *restrict cos);
-int coop_cosine_vecvec(const int n, const double *restrict x, const double *restrict y, double *restrict cos);
+int coop_cosine_mat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, double *restrict cos);
+int coop_cosine_matmat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, const double * const restrict y, double *restrict cos);
+int coop_cosine_vecvec(const int n, const double * const restrict x, const double * const restrict y, double *restrict cos);
 
-int coop_pcor_mat(const int m, const int n, const double *restrict x, double *restrict cor);
-int coop_pcor_vecvec(const int n, const double *restrict x, const double *restrict y, double *restrict cor);
+int coop_pcor_mat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, double *restrict cor);
+int coop_pcor_matmat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, const double * const restrict y, double *restrict cor);
+int coop_pcor_vecvec(const int n, const double * const restrict x, const double * const restrict y, double *restrict cor);
 
-int coop_covar_mat(const int m, const int n, const double *restrict x, double *restrict cov);
-int coop_covar_vecvec(const int n, const double *x, const double *y, double *restrict cov);
+int coop_covar_mat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, double *restrict cov);
+int coop_covar_matmat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, const double * const restrict y, double *restrict cov);
+int coop_covar_vecvec(const int n, const double * const x, const double * const y, double *restrict cov);
+
+// dense - inplace
+int coop_covar_mat_inplace(const bool inv, const int m, const int n, const double *restrict x, double *restrict cov);
+int coop_pcor_mat_inplace(const bool inv, const int m, const int n, const double * const restrict x, double *restrict cor);
+
+// dense - pairwise complete observations (inplace)
+int coop_cosine_mat_inplace_pairwise(const bool inv, const int m, const int n, const double * const restrict x, double *restrict cos);
+int coop_pcor_mat_inplace_pairwise(const bool inv, const int m, const int n, const double * const restrict x, double *restrict cor);
+int coop_covar_mat_inplace_pairwise(const bool inv, const int m, const int n, const double * const restrict x, double *restrict cov);
+
+// scale
+int coop_scale(const bool centerx, const bool scalex, const int m, const int n, double *restrict x, double *restrict colmeans, double *restrict colvars);
 
 // sparse
-int coop_cosine_sparse_coo(const int index, const int n, const int len, const double *restrict a, const int *restrict rows, const int *restrict cols, double *restrict cos);
-
-// utils
-void coop_diag2one(const unsigned int n, double *restrict x);
-void coop_symmetrize(const int n, double *restrict x);
-int coop_sparsity_int(const int m, const int n, const int *x);
-int coop_sparsity_dbl(const int m , const int n, double *x, const double tol);
+int coop_cosine_sparse_coo(const bool inv, const int index, const int n, const int len, const double * const restrict a, const int *restrict rows, const int *restrict cols, double *restrict cos);
 
 
 #endif

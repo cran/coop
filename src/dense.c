@@ -1,16 +1,16 @@
 /*  Copyright (c) 2015-2016, Schmidt
     All rights reserved.
-    
+
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
-    
+
     1. Redistributions of source code must retain the above copyright notice,
     this list of conditions and the following disclaimer.
-    
+
     2. Redistributions in binary form must reproduce the above copyright
     notice, this list of conditions and the following disclaimer in the
     documentation and/or other materials provided with the distribution.
-    
+
     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
     "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
     TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
@@ -24,123 +24,19 @@
     SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-// Functions for computing covariance, (pearson) correlation, and cosine similarity
 
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
 #include "coop.h"
-#include "omp.h"
-
-
-// BLAS prototypes
-void dgemm_(const char *transa, const char *transb, const int *m, const int *n, 
-            const int *k, const double *restrict alpha, const double *restrict a, 
-            const int *lda, const double *restrict b, const int *ldb, 
-            const double *beta, double *restrict c, const int *ldc);
-
-void dsyrk_(const char *uplo, const char *trans, const int *n, const int *k, 
-            const double *restrict alpha, const double *restrict a, const int *lda, 
-            const double *restrict beta, double *restrict c, const int *ldc);
-
-
-// ---------------------------------------------
-//  Static utils
-// ---------------------------------------------
-
-// ddot replica using dgemm
-static inline double ddot(const int n, const double *restrict x, const double *restrict y)
-{
-  const int one = 1;
-  double dot;
-  
-  dgemm_(&(char){'t'}, &(char){'n'}, &one, &one, &n, 
-    &(double){1.0}, x, &n, y, &n, &(double){0.0}, &dot, &one);
-  
-  return dot;
-}
-
-
-
-// upper triangle of t(x) %*% x
-static inline void crossprod(const int m, const int n, const double *restrict x, double *restrict c)
-{
-  dsyrk_(&(char){'l'}, &(char){'t'}, &n, &m, &(double){1.0}, x, &m, &(double){0.0}, c, &n);
-}
-
-
-
-
-// replaces upper triangle of the crossproduct of a matrix with its cosine similarity
-static inline void cosim_fill(const unsigned int n, double *restrict cp)
-{
-  int i, j;
-  double diagj;
-  
-  #pragma omp parallel for private(i,j,diagj) default(shared) schedule(dynamic, 1) if(n>OMP_MIN_SIZE)
-  for (j=0; j<n; j++)
-  {
-    diagj = cp[j + n*j];
-    
-    SAFE_SIMD
-    for (i=j+1; i<n; i++)
-      cp[i + n*j] /= sqrt(cp[i + n*i] * diagj);
-  }
-  
-  coop_diag2one(n, cp);
-}
-
-
-
-// x[*, j] -= colmean(x[*, j])
-static void remove_colmeans(const int m, const int n, double *restrict x)
-{
-  int i, j;
-  double colmean;
-  
-  if (m == 0 || n == 0) 
-    return;
-  
-  const double div = 1. / ((double) m);
-  
-  #pragma omp parallel for private(i, j, colmean) shared(x) if(m*n > OMP_MIN_SIZE)
-  for (j=0; j<n; j++)
-  {
-    colmean = 0;
-    
-    // Get column mean
-    SAFE_SIMD
-    for (i=0; i<m; i++)
-      colmean += x[i   + m*j];
-    
-    colmean *= div;
-    
-    // Remove mean from column
-    SAFE_SIMD
-    for (i=0; i<m; i++)
-      x[i   + m*j] -= colmean;
-    
-  }
-}
-
-
-
-// compute the mean of a vector
-static inline double mean(const int n, const double *restrict x)
-{
-  int i;
-  const double divbyn = 1. / ((double) n);
-  double mean = 0.;
-  
-  SAFE_FOR_SIMD
-  for (i=0; i<n; i++)
-    mean += x[i];
-  
-  return mean*divbyn;
-}
-
-
-
+#include "utils/fill.h"
+#include "utils/inverse.h"
+#include "utils/mmult.h"
+#include "utils/safeomp.h"
+#include "utils/scale.h"
+#include "utils/sumstats.h"
+#include "utils/xpose.h"
 
 
 // ---------------------------------------------
@@ -148,14 +44,16 @@ static inline double mean(const int n, const double *restrict x)
 // ---------------------------------------------
 
 /**
- * @brief 
+ * @brief
  * Compute the cosine similarity matrix of a matrix.  This is
  * all pair-wise vector cosine similarities of the columns.
- * 
+ *
  * @details
  * The implementation is dominated by a symmetric rank-k update
  * via the BLAS function dsyrk().
- * 
+ *
+ * @param trans
+ * Perform cosine(x) or cosine(t(x))
  * @param m,n
  * The number of rows/columns of the input matrix x.
  * @param x
@@ -163,47 +61,96 @@ static inline double mean(const int n, const double *restrict x)
  * @param cos
  * The output nxn matrix.
 */
-int coop_cosine_mat(const int m, const int n, const double *restrict x, double *restrict cos)
+int coop_cosine_mat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, double *restrict cos)
 {
-  crossprod(m, n, x, cos);
-  cosim_fill(n, cos);
-  coop_symmetrize(n, cos);
+  int ncols;
   
-  return 0;
+  if (trans)
+  {
+    ncols = m;
+    tcrossprod(m, n, 1.0, x, cos);
+  }
+  else
+  {
+    ncols = n;
+    crossprod(m, n, 1.0, x, cos);
+  }
+  
+  int ret = cosim_fill(ncols, cos);
+  CHECKRET(ret);
+  
+  if (inv)
+  {
+    ret = inv_sym_chol(ncols, cos);
+    CHECKRET(ret);
+  }
+  
+  symmetrize(ncols, cos);
+  
+  return COOP_OK;
+}
+
+
+
+int coop_cosine_matmat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, const double * const restrict y, double *restrict cos)
+{
+  int nrows, ncols;
+  
+  if (trans)
+  {
+    nrows = n;
+    ncols = m;
+  }
+  else
+  {
+    nrows = m;
+    ncols = n;
+  }
+  
+  matmult(!trans, trans, 1.0, nrows, ncols, x, nrows, ncols, y, cos);
+  
+  int ret = cosim_fill_full(ncols, cos);
+  CHECKRET(ret);
+  
+  if (inv)
+  {
+    ret = inv_sym_chol(ncols, cos);
+    CHECKRET(ret);
+  }
+  
+  return COOP_OK;
 }
 
 
 
 /**
- * @brief 
+ * @brief
  * Compute the cosine similarity between two vectors.
- * 
+ *
  * @details
  * The implementation uses a dgemm() to compute the dot product
  * of x and y, and then two dsyrk() calls to compute the (square of)
  * the norms of x and y.
- * 
+ *
  * @param n
  * The length of the x and y vectors.
  * @param x,y
  * The input vectors.
- * 
+ *
  * @return
  * The cosine similarity between the two vectors.
 */
-int coop_cosine_vecvec(const int n, const double *restrict x, const double *restrict y, double *cos)
+int coop_cosine_vecvec(const int n, const double * const restrict x, const double * const restrict y, double *cos)
 {
   double normx, normy;
   const double cp = ddot(n, x, y);
   
-  crossprod(n, 1, x, &normx);
-  crossprod(n, 1, y, &normy);
+  crossprod(n, 1, 1.0, x, &normx);
+  crossprod(n, 1, 1.0, y, &normy);
   
   *cos = cp / sqrt(normx * normy);
-  return 0;
+  return COOP_OK;
 }
-
-
 
 
 
@@ -212,13 +159,13 @@ int coop_cosine_vecvec(const int n, const double *restrict x, const double *rest
 // ---------------------------------------------
 
 /**
- * @brief 
+ * @brief
  * Compute the pearson correlation matrix.
- * 
+ *
  * @details
  * The implementation is dominated by a symmetric rank-k update
  * via the BLAS function dsyrk().
- * 
+ *
  * @param m,n
  * The number of rows/columns of the input matrix x.
  * @param x
@@ -226,43 +173,112 @@ int coop_cosine_vecvec(const int n, const double *restrict x, const double *rest
  * @param cor
  * The output nxn matrix.
 */
-int coop_pcor_mat(const int m, const int n, const double *restrict x, double *restrict cor)
+int coop_pcor_mat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, double *restrict cor)
 {
   double *x_cp = malloc(m*n*sizeof(*x));
   CHECKMALLOC(x_cp);
-  memcpy(x_cp, x, m*n*sizeof(*x));
+  int nrows, ncols;
   
-  remove_colmeans(m, n, x_cp);
-  crossprod(m, n, x_cp, cor);
-  cosim_fill(n, cor);
-  coop_symmetrize(n, cor);
+  if (trans)
+  {
+    xpose(m, n, x, x_cp);
+    nrows = n;
+    ncols = m;
+  }
+  else
+  {
+    memcpy(x_cp, x, m*n*sizeof(*x));
+    nrows = m;
+    ncols = n;
+  }
   
+  remove_colmeans(nrows, ncols, x_cp);
+  crossprod(nrows, ncols, 1.0, x_cp, cor);
   free(x_cp);
-  return 0;
+  
+  int ret = cosim_fill(ncols, cor);
+  CHECKRET(ret);
+  
+  if (inv)
+  {
+    ret = inv_sym_chol(ncols, cor);
+    CHECKRET(ret);
+  }
+  
+  symmetrize(ncols, cor);
+  
+  return COOP_OK;
+}
+
+
+
+// pcor(x, y)
+int coop_pcor_matmat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, const double * const restrict y, double *restrict cor)
+{
+  int nrows, ncols;
+  int ret = 0;
+  double *x_cp = malloc(m*n * sizeof(*x));
+  CHECKMALLOC(x_cp);
+  double *y_cp = malloc(m*n * sizeof(*y));
+  if (y_cp == NULL)
+  {
+    free(x_cp);
+    return COOP_BADMALLOC;
+  }
+  
+  
+  if (trans)
+  {
+    xpose(m, n, x, x_cp);
+    xpose(m, n, y, y_cp);
+    nrows = n;
+    ncols = m;
+  }
+  else
+  {
+    memcpy(x_cp, x, m*n*sizeof(*x));
+    memcpy(y_cp, y, m*n*sizeof(*y));
+    nrows = m;
+    ncols = n;
+  }
+  
+  scale_nostore(true, true, nrows, ncols, x_cp);
+  scale_nostore(true, true, nrows, ncols, y_cp);
+  
+  const double alpha = 1. / ((double) (nrows-1));
+  
+  matmult(true, false, alpha, nrows, ncols, x_cp, nrows, ncols, y_cp, cor);
+  free(x_cp);
+  free(y_cp);
+  
+  
+  if (inv)
+    ret = inv_sym_chol(ncols, cor);
+  
+  return ret;
 }
 
 
 
 /**
- * @brief 
+ * @brief
  * Compute the pearson correlation between two vectors.
- * 
+ *
  * @details
  * The implementation uses a dgemm() to compute the dot product
  * of x and y, and then two dsyrk() calls to compute the (square of)
  * the norms of x and y.
- * 
+ *
  * @param n
  * The length of the x and y vectors.
  * @param x,y
  * The input vectors.
- * 
+ *
  * @return
  * The correlation between the two vectors.
 */
-int coop_pcor_vecvec(const int n, const double *restrict x, const double *restrict y, double *restrict cor)
+int coop_pcor_vecvec(const int n, const double * const restrict x, const double * const restrict y, double *restrict cor)
 {
-  int i;
   double normx, normy;
   
   double *x_minusmean = malloc(n*sizeof(*x));
@@ -274,7 +290,7 @@ int coop_pcor_vecvec(const int n, const double *restrict x, const double *restri
   const double meany = mean(n, y);
   
   SAFE_PARALLEL_FOR_SIMD
-  for (i=0; i<n; i++)
+  for (int i=0; i<n; i++)
   {
     x_minusmean[i] = x[i] - meanx;
     y_minusmean[i] = y[i] - meany;
@@ -282,17 +298,15 @@ int coop_pcor_vecvec(const int n, const double *restrict x, const double *restri
   
   const double cp = ddot(n, x_minusmean, y_minusmean);
   
-  crossprod(n, 1, x_minusmean, &normx);
-  crossprod(n, 1, y_minusmean, &normy);
+  crossprod(n, 1, 1.0, x_minusmean, &normx);
+  crossprod(n, 1, 1.0, y_minusmean, &normy);
   
   free(x_minusmean);
   free(y_minusmean);
   
   *cor = cp / sqrt(normx * normy);
-  return 0;
+  return COOP_OK;
 }
-
-
 
 
 
@@ -307,9 +321,9 @@ int coop_pcor_vecvec(const int n, const double *restrict x, const double *restri
  *
  * @details
  * Computes the variance-covariance matrix.  Centering is done in-place.
- * 
+ *
  * @param method
- * Input.  The form the covariance matrix takes (pearson, kendall, 
+ * Input.  The form the covariance matrix takes (pearson, kendall,
  * spearman).  Currently only pearson works.
  * @param m,n
  * Inputs.  Problem size (dims of x)
@@ -322,55 +336,124 @@ int coop_pcor_vecvec(const int n, const double *restrict x, const double *restri
  * The return value indicates that status of the function.  Non-zero values
  * are errors.
 */
-int coop_covar_mat(const int m, const int n, const double *restrict x, double *restrict cov)
+int coop_covar_mat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, double *restrict cov)
 {
-  double alpha = 1. / ((double) (m-1));
+  int nrows, ncols;
   double *x_cp = malloc(m*n*sizeof(*x));
   CHECKMALLOC(x_cp);
-  memcpy(x_cp, x, m*n*sizeof(*x));
   
-  remove_colmeans(m, n, x_cp);
-  dsyrk_(&(char){'l'}, &(char){'t'}, &n, &m, &alpha, x_cp, &m, &(double){0.0}, cov, &n);
-  coop_symmetrize(n, cov);
+  if (trans)
+  {
+    xpose(m, n, x, x_cp);
+    nrows = n;
+    ncols = m;
+  }
+  else
+  {
+    memcpy(x_cp, x, m*n*sizeof(*x));
+    nrows = m;
+    ncols = n;
+  }
   
+  
+  const double alpha = 1. / ((double) (nrows-1));
+  
+  remove_colmeans(nrows, ncols, x_cp);
+  crossprod(nrows, ncols, alpha, x_cp, cov);
   free(x_cp);
   
-  return 0;
+  if (inv)
+  {
+    int ret = inv_sym_chol(ncols, cov);
+    CHECKRET(ret);
+  }
+  
+  symmetrize(ncols, cov);
+  
+  return COOP_OK;
+}
+
+
+
+// covar(x,y)
+int coop_covar_matmat(const bool trans, const bool inv, const int m, const int n, const double * const restrict x, const double * const restrict y, double *restrict cov)
+{
+  int ret = 0;
+  int nrows, ncols;
+  double *x_cp = malloc(m*n * sizeof(*x));
+  CHECKMALLOC(x_cp);
+  double *y_cp = malloc(m*n * sizeof(*y));
+  if (y_cp == NULL)
+  {
+    free(x_cp);
+    return COOP_BADMALLOC;
+  }
+  
+  
+  if (trans)
+  {
+    xpose(m, n, x, x_cp);
+    xpose(m, n, y, y_cp);
+    nrows = n;
+    ncols = m;
+  }
+  else
+  {
+    memcpy(x_cp, x, m*n*sizeof(*x));
+    memcpy(y_cp, y, m*n*sizeof(*y));
+    nrows = m;
+    ncols = n;
+  }
+  
+  
+  const double alpha = 1. / ((double) (nrows-1));
+  
+  //TODO FIXME make tremove_colmeans and use the BLAS more efficiently...
+  remove_colmeans(nrows, ncols, x_cp);
+  remove_colmeans(nrows, ncols, y_cp);
+  
+  // matmult(!trans, trans, alpha, nrows, ncols, x_cp, nrows, ncols, y_cp, cov);
+  matmult(true, false, alpha, nrows, ncols, x_cp, nrows, ncols, y_cp, cov);
+  free(x_cp);
+  free(y_cp);
+  
+  if (inv)
+    ret = inv_sym_chol(ncols, cov);
+  
+  return ret;
 }
 
 
 
 /**
- * @brief 
+ * @brief
  * Compute the covariance between two vectors.
- * 
+ *
  * @details
  * The implementation uses a dgemm() to compute the dot product
  * of x and y, and then two dsyrk() calls to compute the (square of)
  * the norms of x and y.
- * 
+ *
  * @param n
  * The length of the x and y vectors.
  * @param x,y
  * The input vectors.
- * 
+ *
  * @return
  * The variance of the vectors.
 */
-int coop_covar_vecvec(const int n, const double *restrict x, const double *restrict y, double *restrict cov)
+int coop_covar_vecvec(const int n, const double * const restrict x, const double * const restrict y, double *restrict cov)
 {
-  int i;
   const double recip_n = (double) 1. / (n-1);
   double sum_xy = 0., sum_x = 0., sum_y = 0.;
-  double tx, ty;
   
   #ifdef OMP_VER_4
   #pragma omp simd reduction(+: sum_xy, sum_x, sum_y)
   #endif
-  for (i=0; i<n; i++)
+  for (int i=0; i<n; i++)
   {
-    tx = x[i];
-    ty = y[i];
+    const double tx = x[i];
+    const double ty = y[i];
     
     sum_xy += tx*ty;
     sum_x += tx;
@@ -378,5 +461,5 @@ int coop_covar_vecvec(const int n, const double *restrict x, const double *restr
   }
   
   *cov = (sum_xy - (sum_x*sum_y*((double) 1./n))) * recip_n;
-  return 0;
+  return COOP_OK;
 }

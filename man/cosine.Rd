@@ -2,9 +2,12 @@
 % Please edit documentation in R/cosine.r
 \name{cosine}
 \alias{cosine}
+\alias{tcosine}
 \title{Cosine Similarity}
 \usage{
-cosine(x, y, use = "everything")
+cosine(x, y, use = "everything", inverse = FALSE)
+
+tcosine(x, y, use = "everything", inverse = FALSE)
 }
 \arguments{
 \item{x}{A numeric matrix or vector.}
@@ -15,6 +18,8 @@ cosine(x, y, use = "everything")
 \item{use}{The NA handler, as in R's \code{cov()} and \code{cor()}
 functions.  Options are "everything", "all.obs", and 
 "complete.obs".}
+
+\item{inverse}{Logical; should the inverse covariance matrix be returned?}
 }
 \value{
 The \eqn{n\times n} matrix of all pair-wise vector cosine

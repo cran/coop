@@ -15,6 +15,12 @@
 #' The NA handler, as in R's \code{cov()} and \code{cor()}
 #' functions.  Options are "everything", "all.obs", and 
 #' "complete.obs".
+#' @param inplace
+#' Logical; if \code{TRUE} then the method used is slower but
+#' uses less memory than if \code{FALSE}.  See \code{?coop-package}
+#' for details.
+#' @param inverse
+#' Logical; should the inverse covariance matrix be returned?
 #' 
 #' @return
 #' The pearson correlation matrix.
@@ -27,21 +33,42 @@
 #' 
 #' @author Drew Schmidt
 #' @seealso \code{\link{cosine}}
+#' @name pcor
+#' @rdname pcor
+NULL
+
+#' @rdname pcor
 #' @export
-pcor <- function(x, y, use="everything") UseMethod("pcor")
+pcor <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE) UseMethod("pcor")
 
 
 
 #' @export
-pcor.matrix <- function(x, y, use="everything")
+pcor.matrix <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE)
 {
-  co_matrix(x, y, CO_ORR, use)
+  co_matrix(x, y, CO_ORR, use, inplace, trans=FALSE, inverse=inverse)
 }
 
 
 
 #' @export
-pcor.default <- function(x, y, use="everything")
+pcor.default <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE)
 {
   co_vecvec(x, y, CO_ORR, use)
+}
+
+
+
+# tpcor
+
+#' @rdname pcor
+#' @export
+tpcor <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE) UseMethod("tpcor")
+
+
+
+#' @export
+tpcor.matrix <- function(x, y, use="everything", inplace=FALSE, inverse=FALSE)
+{
+  co_matrix(x, y, CO_ORR, use, inplace, trans=TRUE, inverse=inverse)
 }

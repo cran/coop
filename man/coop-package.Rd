@@ -18,6 +18,32 @@ language processing, where the cosine similarity coefficients
 of all columns of a term-document or document-term matrix is
 needed.
 }
+\section{The \code{inplace} argument}{
+
+When computing covariance and correlation with dense matrices, 
+we must operate on the centered and/or scaled input data.  When
+\code{inplace=FALSE}, a copy of the matrix is made.  This
+allows for very wall-clock efficient processing at the cost of 
+m*n additional double precision numbers allocated.  On the
+other hand, if \code{inplace=TRUE}, then the wall-clock 
+performance will drop considerably, but at the memory expense
+of only m+n additional doubles.  For perspective, given a 
+30,000x30,000 matrix, a copy of the data requires an
+additional 6.7 GiB of data, while the inplace method requires
+only 469 KiB, a 15,000-fold difference.
+
+Note that cosine is always computed in place.
+}
+
+\section{The \code{t} functions}{
+
+The package also includes "t" functions, like \code{tcosine()}. These
+behave analogously to \code{tcrossprod()} as \code{crossprod()} in base R.
+So of \code{cosine()} operates on the columns of the input matrix, then
+\code{tcosine()} operates on the rows.  Another way to think of it is,
+\code{tcosine(x) = cosine(t(x))}.
+}
+
 \section{Implementation Details}{
 
 Multiple storage schemes for the input data are accepted.  
