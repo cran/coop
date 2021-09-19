@@ -31,8 +31,9 @@
 #include <math.h>
 #include <stdlib.h>
 
-#include "cdefs.h"
 #include "safeomp.h"
+
+#include "cdefs.h"
 
 
 // set diagonal of nxn matrix x to 1
@@ -57,7 +58,7 @@ static inline void symmetrize(const int n, double *restrict x)
       for (int col=j; col<j+blocksize && col<n; ++col)
       {
         for (int row=i; row<i+blocksize && row<n; ++row)
-          x[col + n*row] = x[row + n*col];
+          x[col + (size_t)n*row] = x[row + (size_t)n*col];
       }
     }
   }
